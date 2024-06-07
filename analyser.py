@@ -7,7 +7,6 @@ from crewai_tools import BaseTool
 from crewai import Agent, Task, Crew, Process
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
-from langchain_openai import ChatOpenAI
 
 load_dotenv()
 
@@ -32,7 +31,6 @@ class YouTubeCommentsTool(BaseTool):
                 logging.error("Invalid YouTube URL provided.")
                 return []
 
-          
             api_key = os.getenv("YOUTUBE_API_KEY")
             youtube = googleapiclient.discovery.build("youtube", "v3", developerKey=api_key)
 
@@ -40,7 +38,6 @@ class YouTubeCommentsTool(BaseTool):
             next_page_token = None
 
             while True:
-                
                 request = youtube.commentThreads().list(
                     part="snippet",
                     videoId=video_id,
@@ -50,18 +47,15 @@ class YouTubeCommentsTool(BaseTool):
                 )
                 response = request.execute()
 
-                
                 for item in response["items"]:
                     comment = item["snippet"]["topLevelComment"]["snippet"]["textDisplay"]
                     comment = self.clean_escape_characters(comment)
                     comments.append(comment)
 
-               
                 next_page_token = response.get("nextPageToken")
                 if not next_page_token:
                     break
 
-            
             self.save_comments_to_json(comments)
             logging.info(f"A total of {len(comments)} comments were retrieved.")
             return comments
@@ -88,7 +82,6 @@ class YouTubeCommentsTool(BaseTool):
     def save_comments_to_json(self, comments):
         try:
             file_path = "comments.json"
-           
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(comments, f, ensure_ascii=False, indent=4)
             logging.info("Comments have been saved to the JSON file.")
@@ -110,7 +103,6 @@ class CommentsAnalysis:
         self.initialize_results_file()
 
     def initialize_results_file(self):
-        
         try:
             with open(self.raw_results_file_path, "w", encoding="utf-8") as f:
                 json.dump([], f, ensure_ascii=False, indent=4)
@@ -118,13 +110,13 @@ class CommentsAnalysis:
         except Exception as e:
             logging.error(f"Failed to create file: {e}")
 
-
     def create_agent(self) -> Agent:
         return Agent(
             role="Tech Insights Analyst",
             goal=(
                 "Generate and synthesize insights from YouTube comments on tech videos. "
                 "Analyze the comments from {comments_chunk} ONLY to find meaningful patterns and synthesize data into insights that highlight the core message of viewer feedback."
+                "Results must be exactly in the JSON format. Do not include any extra comments, explanations, or notes beyond the analysis."
             ),
             backstory=(
                 "You are a sharp-witted analyst with a passion for the tech sector. "
@@ -133,6 +125,8 @@ class CommentsAnalysis:
                 "Your analytical prowess ensures that the subtleties of audience engagement and preferences are captured and understood, "
                 "setting the stage for informed content strategies. All your results should be grounded in evidence from the comments, so cite appropriately. "
                 "Do not include any extra comments, explanations, or notes beyond the analysis."
+                "Results must be exactly in the JSON format. Do not include any extra comments, explanations, or notes beyond the analysis."
+                "Don't add ``` after analysis"
             ),
             llm=self.llm,
             allow_delegation=False,
@@ -161,6 +155,8 @@ class CommentsAnalysis:
                 "If a comment does not fit into one of these categories, classify it as 'Other'. "
                 "Ensure the JSON output is valid, without trailing commas or syntax errors. Ensure proper escaping and use double quotes for strings."
                 "Don't mention that ```json to by the end of the task do not do that. Don't include any extra comments, explanations, or notes beyond the analysis. Don't include any comment numbers."
+                "Don't add ``` after analysis"
+                 "Results must be exactly in the JSON format. Do not include any extra comments, explanations, or notes beyond the analysis."
             ),
             agent=agent,
             expected_output=(
@@ -169,6 +165,7 @@ class CommentsAnalysis:
                 "Each result must be in exactly the same format. Do NOT ADD any other NOTES, COMMENTS, or EXPLANATIONS. Output must be strictly JSON formatted dictionary. "
                 "Do NOT Say 'This is the final answer.' Do NOT add any extra data to your results. Use double quotes for all strings. Don't include any comment numbers."
                 "Ensure the JSON output is valid, without trailing commas or syntax errors. Ensure proper escaping and use double quotes for strings."
+                 "Results must be exactly in the JSON format. Do not include any extra comments, explanations, or notes beyond the analysis."
             ),
             inputs={"comments_chunk": comments_chunk}
         )
@@ -194,16 +191,14 @@ class CommentsAnalysis:
             with open(self.raw_results_file_path, "r+", encoding="utf-8") as f:
                 results = json.load(f)
                 try:
-                    
-                    json_result = json.loads(result)
+                    fixed_result = self.fix_trailing_commas(result)
+                    json_result = json.loads(fixed_result)
                 except json.JSONDecodeError as e:
                     logging.error(f"JSON decode error: {e}")
                     logging.error(f"Problematic result: {result}")
                     return
 
-                
-                valid_json = json.dumps(json_result, ensure_ascii=False, indent=4)
-                results.append(json.loads(valid_json))
+                results.append(json_result)
 
                 f.seek(0)
                 json.dump(results, f, ensure_ascii=False, indent=4)
@@ -212,6 +207,11 @@ class CommentsAnalysis:
         except Exception as e:
             logging.error(f"Failed to append the result: {e}")
 
+    def fix_trailing_commas(self, json_str):
+        """Fix trailing commas in JSON string."""
+        json_str = re.sub(r',\s*]', ']', json_str)
+        json_str = re.sub(r',\s*}', '}', json_str)
+        return json_str
 
     def merge_results(self):
         """Merges all comments into a single JSON structure."""
@@ -219,7 +219,6 @@ class CommentsAnalysis:
         try:
             with open(self.raw_results_file_path, "r", encoding="utf-8") as f:
                 all_results = json.load(f)
-            
             
             final_results = {
                 "Requests": [],
@@ -229,7 +228,6 @@ class CommentsAnalysis:
                 "Troubleshooting": [],
                 "Other": []
             }
-            
             
             for entry in all_results:
                 if isinstance(entry, dict):
@@ -246,10 +244,8 @@ class CommentsAnalysis:
             
             logging.info(f"All results have been merged into the {self.final_results_file_path} file.")
 
-        
         except Exception as e:
             logging.error(f"Failed to merge results: {e}")
-
 
     def run(self):
         try:
@@ -263,10 +259,10 @@ class CommentsAnalysis:
                 logging.error("Failed to load comments data.")
                 return
             
-            chunk_size = 20 # 
+            chunk_size = 20
             comments_chunks = self.split_comments(comments_data, chunk_size)
             
-            logging.info(f"Loaded comments: {comments_data[:5]}")  
+            logging.info(f"Loaded comments: {comments_data[:5]}")
             
             for idx, chunk in enumerate(comments_chunks):
                 agent = self.create_agent()
@@ -278,8 +274,9 @@ class CommentsAnalysis:
                 logging.info(f"Task {idx + 1} raw result: {result}")
                 
                 try:
-                    json_result = json.loads(result)
-                    self.append_result_to_json(result)
+                    fixed_result = self.fix_trailing_commas(result)
+                    json_result = json.loads(fixed_result)
+                    self.append_result_to_json(fixed_result)
                 except json.JSONDecodeError as e:
                     logging.error(f"JSON decode error after validation: {e}")
                     logging.error(f"Problematic result: {result}")
