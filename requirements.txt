@@ -1,6 +1,6 @@
 google-api-python-client==2.129.0
-crew-ai-tools==0.2.6
-crew-ai==0.30.11
+crewai==0.30.11
+crewai[tools]==0.30.11
 python-dotenv==1.0.0
 langchain-groq==0.1.4
 langchain-openai==0.0.5
